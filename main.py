@@ -13,18 +13,6 @@ class HTStars(discord.Client):
     def __init__(self):
         discord.Client.__init__(self)
 
-    def check_table_exists(self, tablename):
-        dbcur = self.database.cursor()
-        dbcur.execute("""
-            SELECT name FROM sqlite_master WHERE type='table' AND name='{0}';
-            """.format(tablename.replace('\'', '\'\'')))
-        if dbcur.fetchone():
-            dbcur.close()
-            return True
-
-        dbcur.close()
-        return False
-    
     def star_emoji(self, stars):
         if 5 > stars >= 0:
             return '\N{WHITE MEDIUM STAR}'
@@ -44,7 +32,7 @@ class HTStars(discord.Client):
         green = int((194 * p) + (253 * (1 - p)))
         blue = int((12 * p) + (247 * (1 - p)))
         return (red << 16) + (green << 8) + blue
-    
+
     def get_emoji_message(self, message, stars):
         emoji = self.star_emoji(stars)
 
@@ -76,10 +64,8 @@ class HTStars(discord.Client):
     async def on_ready(self):
         self.database = sqlite3.connect("htstars.sqlite")
         cursor = self.database.cursor()
-
-        if not self.check_table_exists('stars'):
-            cursor.execute("""CREATE TABLE stars (original_id INTEGER, starboard_id INTEGER, guild_id INTEGER, author INTEGER, message_content TEXT)""")
-            self.database.commit()
+        cursor.execute("""CREATE TABLE IF NOT EXISTS stars (original_id INTEGER, starboard_id INTEGER, guild_id INTEGER, author INTEGER, message_content TEXT)""")
+        self.database.commit()
         cursor.close()
 
         print('Starboard? More like.. Um.. Draobrats?')
@@ -88,23 +74,57 @@ class HTStars(discord.Client):
         if message.content == 'star.die' and message.author.id == 161508165672763392:
             self.database.close()
             await self.logout()
-    
-    async def on_message_edit(self, before, after):
-        pass
+
+    async def on_message_delete(self, message):
+        if message.guild is not None and message.guild.id == GUILD_ID:
+            cursor = self.database.cursor()
+            cursor.execute("""SELECT * FROM stars WHERE original_id=?""", (message.id,))
+            res = cursor.fetchall()
+
+            for i in res:
+                try:
+                    message = await message.guild.get_channel(STARBOARD_ID).get_message(i[1])
+
+                    await message.delete()
+                except discord.errors.NotFound:
+                    pass
+
+                cursor.execute("""DELETE FROM stars WHERE original_id=?""", (message.id,))
+                self.database.commit()
 
     async def on_raw_reaction_add(self, emoji, message_id, channel_id, user_id):
-        if self.get_channel(channel_id).guild.id == GUILD_ID:
+        chan = self.get_channel(channel_id)
+        if chan.guild is not None and chan.guild.id == GUILD_ID:
             if emoji.name == STAR_EMOJI:
                 await self.action(message_id, channel_id, user_id)
-    
+
+    async def on_raw_reaction_clear(self, message_id, channel_id):
+        chan = self.get_channel(channel_id)
+        if chan.guild is not None and chan.guild.id == GUILD_ID:
+            cursor = self.database.cursor()
+            cursor.execute("""SELECT * FROM stars WHERE original_id=?""", (message_id,))
+            res = cursor.fetchall()
+
+            for i in res:
+                try:
+                    message = await chan.guild.get_channel(STARBOARD_ID).get_message(i[1])
+
+                    await message.delete()
+                except discord.errors.NotFound:
+                    pass
+
+                cursor.execute("""DELETE FROM stars WHERE original_id=?""", (message_id,))
+                self.database.commit()
+
     async def on_raw_reaction_remove(self, emoji, message_id, channel_id, user_id):
-        if self.get_channel(channel_id).guild.id == GUILD_ID:
+        chan = self.get_channel(channel_id)
+        if chan.guild is not None and chan.guild.id == GUILD_ID:
             if emoji.name == STAR_EMOJI:
                 await self.action(message_id, channel_id, user_id)
-    
+
     async def action(self, message_id, channel_id, user_id):
         target_message = await self.get_channel(channel_id).get_message(message_id)
-        
+
         count = 0
         for i in target_message.reactions:
             if i.emoji == STAR_EMOJI:
@@ -136,7 +156,7 @@ class HTStars(discord.Client):
             if channel_id != STARBOARD_ID:
                 if count >= STARBOARD_THRESHOLD:
                     content, embed = self.get_emoji_message(target_message, count)
-                
+
                     # embed = discord.Embed()
                     # embed.timestamp = target_message.created_at
                     # embed.description = target_message.content
