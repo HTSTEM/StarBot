@@ -4,13 +4,13 @@ stars: # a list of possible reactions
   - 🌟
 
 # the threshold for a message to be posted in the starboard (# of stars > threshold)
-threshold: 1
+threshold: 3
 
 # ID of the guild (server) the starboard is on
-guild: 290573725366091787
+guild: 282219466589208576
 
 # ID of the starboard channel
-starboard: 319830765842071563
+starboard: 375361337464979467
 
 # name of a file with only the bot's token inside
 token_file: "token.txt"
