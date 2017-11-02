@@ -50,7 +50,7 @@ class HTStars(discord.Client):
             while not t or not os.path.exists(t):
                 t = input('> ')
             config['token_file'] = t
-            
+
             with open('config.yml', 'w') as conf_file:
                 self.yaml.dump(config, conf_file)
                 self.config = config
@@ -178,6 +178,11 @@ class HTStars(discord.Client):
         chan = self.get_channel(channel_id)
         if chan.guild is not None and chan.guild.id == self.config.get('guild'):
             if emoji.name in self.config.get('stars', STAR_EMOJI_DEFAULT):
+                message = await chan.get_message(message_id)
+                if user_id == message.author.id:
+                    await message.remove_reaction(emoji, message.author)
+                    return
+
                 await self.action(message_id, channel_id, user_id)
 
     async def on_raw_reaction_clear(self, message_id, channel_id):
