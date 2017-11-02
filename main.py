@@ -111,7 +111,7 @@ class HTStars(discord.Client):
             if file.url.lower().endswith(('png', 'jpeg', 'jpg', 'gif')):
                 embed.set_image(url=file.url)
             else:
-                embed.add_field(name='Attachment', value='[{file.filename}]({file.url})'.format(), inline=False)
+                embed.add_field(name='Attachment', value='[{0.filename}]({0.url})'.format(file), inline=False)
 
         embed.set_author(name=message.author.display_name, icon_url=message.author.avatar_url_as(format='png'))
         embed.timestamp = message.created_at
