@@ -57,7 +57,12 @@ class HTStars(discord.Client):
 
         self.database = sqlite3.connect("htstars.sqlite")
         cursor = self.database.cursor()
-        cursor.execute("""CREATE TABLE IF NOT EXISTS stars (original_id INTEGER, starboard_id INTEGER, guild_id INTEGER, author INTEGER, message_content TEXT)""")
+        cursor.execute("""CREATE TABLE IF NOT EXISTS stars
+                          (original_id INTEGER,
+                           starboard_id INTEGER,
+                           guild_id INTEGER,
+                           author INTEGER,
+                           message_content TEXT)""")
         self.database.commit()
         cursor.close()
 
@@ -111,9 +116,12 @@ class HTStars(discord.Client):
             if file.url.lower().endswith(('png', 'jpeg', 'jpg', 'gif')):
                 embed.set_image(url=file.url)
             else:
-                embed.add_field(name='Attachment', value='[{0.filename}]({0.url})'.format(file), inline=False)
+                embed.add_field(
+                    name='Attachment',
+                    value='[{0.filename}]({0.url})'.format(file), inline=False)
 
-        embed.set_author(name=message.author.display_name, icon_url=message.author.avatar_url_as(format='png'))
+        embed.set_author(name=message.author.display_name,
+                         icon_url=message.author.avatar_url_as(format='png'))
         embed.timestamp = message.created_at
         embed.colour = self.star_gradient_colour(stars)
         return content, embed
@@ -149,18 +157,21 @@ class HTStars(discord.Client):
     async def on_message_delete(self, message):
         if message.guild is not None and message.guild.id == self.config.get('guild'):
             cursor = self.database.cursor()
-            cursor.execute("""SELECT * FROM stars WHERE original_id=?""", (message.id,))
+            cursor.execute("""SELECT * FROM stars
+                              WHERE original_id=?""", (message.id,))
             res = cursor.fetchall()
 
             for i in res:
                 try:
-                    message = await message.guild.get_channel(self.config.get('starboard')).get_message(i[1])
+                    message = await message.guild.get_channel(
+                        self.config.get('starboard')).get_message(i[1])
 
                     await message.delete()
                 except discord.errors.NotFound:
                     pass
 
-                cursor.execute("""DELETE FROM stars WHERE original_id=?""", (message.id,))
+                cursor.execute("""DELETE FROM stars
+                                  WHERE original_id=?""", (message.id,))
                 self.database.commit()
 
     async def on_raw_reaction_add(self, emoji, message_id, channel_id, user_id):
@@ -173,18 +184,21 @@ class HTStars(discord.Client):
         chan = self.get_channel(channel_id)
         if chan.guild is not None and chan.guild.id == self.config.get('guild'):
             cursor = self.database.cursor()
-            cursor.execute("""SELECT * FROM stars WHERE original_id=?""", (message_id,))
+            cursor.execute("""SELECT * FROM stars
+                              WHERE original_id=?""", (message_id,))
             res = cursor.fetchall()
 
             for i in res:
                 try:
-                    message = await chan.guild.get_channel(self.config.get('starboard')).get_message(i[1])
+                    message = await chan.guild.get_channel(
+                        self.config.get('starboard')).get_message(i[1])
 
                     await message.delete()
                 except discord.errors.NotFound:
                     pass
 
-                cursor.execute("""DELETE FROM stars WHERE original_id=?""", (message_id,))
+                cursor.execute("""DELETE FROM stars
+                                  WHERE original_id=?""", (message_id,))
                 self.database.commit()
 
     async def on_raw_reaction_remove(self, emoji, message_id, channel_id, user_id):
@@ -205,7 +219,8 @@ class HTStars(discord.Client):
         channel = self.get_channel(self.config.get('starboard'))
 
         cursor = self.database.cursor()
-        cursor.execute("""SELECT * FROM stars WHERE original_id=?""", (message_id,))
+        cursor.execute("""SELECT * FROM stars
+                          WHERE original_id=?""", (message_id,))
         res = cursor.fetchall()
 
         if res:
@@ -219,7 +234,8 @@ class HTStars(discord.Client):
                 else:
                     await message.delete()
             except discord.errors.NotFound:
-                cursor.execute("""DELETE FROM stars WHERE original_id=?""", (message_id,))
+                cursor.execute("""DELETE FROM stars
+                                  WHERE original_id=?""", (message_id,))
                 self.database.commit()
                 res = []
 
@@ -229,10 +245,20 @@ class HTStars(discord.Client):
                     content, embed = self.get_emoji_message(target_message, count)
                     message = await channel.send(content, embed=embed)
 
-                    cursor.execute("""INSERT INTO stars (original_id, starboard_id, guild_id, author, message_content)
-                                      VALUES (?, ?, ?, ?, ?)""", (message_id, message.id, channel.guild.id, target_message.author.id, target_message.content))
+                    cursor.execute("""INSERT INTO stars (original_id,
+                                                         starboard_id,
+                                                         guild_id,
+                                                         author,
+                                                         message_content)
+                                      VALUES (?, ?, ?, ?, ?)""",
+                                      (message_id,
+                                       message.id,
+                                       channel.guild.id,
+                                       target_message.author.id,
+                                       target_message.content))
                     self.database.commit()
                     cursor.close()
+
 
 if __name__ == '__main__':
     HTStars().start_bot()
