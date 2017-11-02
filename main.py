@@ -1,36 +1,77 @@
+import logging
 import sqlite3
-from ruamel.yaml import YAML
+import os
 
+from ruamel.yaml import YAML
 import discord
+
+
+LOGGING_FORMAT = '[%(levelname)s - %(name)s - %(asctime)s] %(message)s'
+
+STAR_EMOJI_DEFAULT = [b'\xe2\xad\x90'.decode('utf-8')]
+STARBOARD_THRESHOLD_DEFAULT = 3
 
 
 class HTStars(discord.Client):
     def __init__(self):
         super().__init__()
-        self.yaml = YAML(typ='safe')
-        with open('config.yml') as conf_file:
-            self.config = self.yaml.load(conf_file)
-        
-        # get stars from config, defaults to 
-        try:
-            self.STAR_EMOJI = list(self.config['stars'])
-        except KeyError:
-            self.STAR_EMOJI = list(b'\xe2\xad\x90'.decode('utf-8'))
 
-        try: 
-            self.THRESH = int(self.config['threshold'])
-        except KeyError:
-            self.THRESH = 3
-            
+        self.log = logging.getLogger('Bot')
+        logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
+
+        self.yaml = YAML(typ='safe')
         try:
-            self.GUILD_ID = int(self.config['guild'])
-        except KeyError: raise Exception('`guild` is missing from config.yml')
+            with open('config.yml') as conf_file:
+                self.config = self.yaml.load(conf_file)
+        except FileNotFoundError:
+            config = {}
+            print('Config file generator:')
+            print('Please enter the emoji you want as the stars (comma seperated):')
+            e = input('> ')
+            e = [i.strip() for i in e.split(' ')]
+            config['emojis'] = e
+            print('Please enter the threshold for staring a message:')
+            n = ''
+            while not n or not n.isdigit():
+                n = input('> ')
+            config['threshold'] = int(n)
+            print('Please enter the guild id:')
+            n = ''
+            while not n or not n.isdigit():
+                n = input('> ')
+            config['guild'] = int(n)
+            print('Please enter the starboard channel id:')
+            n = ''
+            while not n or not n.isdigit():
+                n = input('> ')
+            config['starboard'] = int(n)
+            print('Please enter the starboard channel id:')
+            t = ''
+            while not t or not os.path.exists(t):
+                t = input('> ')
+            config['token_file'] = t
             
-        try:
-            self.STARBOARD_ID = int(self.config['starboard'])
-        except KeyError: raise Exception('`starboard` is missing from config.yml')
-            
-    def star_emoji(self, stars):
+            with open('config.yml', 'w') as conf_file:
+                self.yaml.dump(config, conf_file)
+                self.config = config
+
+        self.database = sqlite3.connect("htstars.sqlite")
+        cursor = self.database.cursor()
+        cursor.execute("""CREATE TABLE IF NOT EXISTS stars (original_id INTEGER, starboard_id INTEGER, guild_id INTEGER, author INTEGER, message_content TEXT)""")
+        self.database.commit()
+        cursor.close()
+
+        if self.config.get('guild') is None:
+            raise Exception('Guild id not set in config')
+
+        if self.config.get('starboard') is None:
+            raise Exception('Starboard channel id not set in config')
+
+        if self.config.get('token_file') is None:
+            raise ValueError('No token file set')
+
+    @staticmethod
+    def star_emoji(stars):
         if 5 > stars >= 0:
             return '\N{WHITE MEDIUM STAR}'
         elif 10 > stars >= 5:
@@ -40,7 +81,8 @@ class HTStars(discord.Client):
         else:
             return '\N{SPARKLES}'
 
-    def star_gradient_colour(self, stars):
+    @staticmethod
+    def star_gradient_colour(stars):
         p = stars / 13
         if p > 1.0:
             p = 1.0
@@ -57,7 +99,6 @@ class HTStars(discord.Client):
             content = '{0} **{2}** {1.channel.mention} ID: {1.id}'.format(emoji, message, stars)
         else:
             content = '{0} {1.channel.mention} ID: {1.id}'.format(emoji, message)
-
 
         embed = discord.Embed(description=message.content)
         if message.embeds:
@@ -77,35 +118,43 @@ class HTStars(discord.Client):
         embed.colour = self.star_gradient_colour(stars)
         return content, embed
 
+    def start_bot(self):
+        with open(self.config.get('token_file')) as f:
+            token = f.read().split('\n')[0].strip()
+        self.run(token, bot=self.config.get('is_bot', True))
 
     async def on_ready(self):
-        self.database = sqlite3.connect("htstars.sqlite")
         cursor = self.database.cursor()
-        cursor.execute("""CREATE TABLE IF NOT EXISTS stars (original_id INTEGER, starboard_id INTEGER, guild_id INTEGER, author INTEGER, message_content TEXT)""")
-        self.database.commit()
+        cursor.execute("""SELECT * FROM stars""")
+        res = cursor.fetchall()
         cursor.close()
 
-        print('-----------------------')
-        print('Connected to Discord as')
-        print(self.user.name)
-        print(self.user.id)
-        print('Guild: {0} / {0.id}\nStarboard: {1} / {1.id}'.format(self.get_guild(self.GUILD_ID), self.get_channel(self.STARBOARD_ID)))
-        print('-----------------------\n')
+        self.log.info('-----------------------')
+        self.log.info('Connected to Discord as')
+        self.log.info(self.user.name)
+        self.log.info(self.user.id)
+        self.log.info('Guild: {0} / {0.id}'.format(
+            self.get_guild(self.config.get('guild'))))
+        self.log.info('Starboard: {0} / {0.id}'.format(
+            self.get_channel(self.config.get('starboard'))))
+        self.log.info('Messages stared: {}'.format(len(res)))
+        self.log.info('-----------------------')
+        self.log.info('')
 
     async def on_message(self, message):
-        if message.content == 'star.die' and message.author.id == self.user.id:
+        if message.content == 'star.die' and message.author.id == 161508165672763392:
             self.database.close()
             await self.logout()
 
     async def on_message_delete(self, message):
-        if message.guild is not None and message.guild.id == self.GUILD_ID:
+        if message.guild is not None and message.guild.id == self.config.get('guild'):
             cursor = self.database.cursor()
             cursor.execute("""SELECT * FROM stars WHERE original_id=?""", (message.id,))
             res = cursor.fetchall()
 
             for i in res:
                 try:
-                    message = await message.guild.get_channel(self.STARBOARD_ID).get_message(i[1])
+                    message = await message.guild.get_channel(self.config.get('starboard')).get_message(i[1])
 
                     await message.delete()
                 except discord.errors.NotFound:
@@ -116,20 +165,20 @@ class HTStars(discord.Client):
 
     async def on_raw_reaction_add(self, emoji, message_id, channel_id, user_id):
         chan = self.get_channel(channel_id)
-        if chan.guild is not None and chan.guild.id == self.GUILD_ID:
-            if emoji.name in self.STAR_EMOJI:
+        if chan.guild is not None and chan.guild.id == self.config.get('guild'):
+            if emoji.name in self.config.get('stars', STAR_EMOJI_DEFAULT):
                 await self.action(message_id, channel_id, user_id)
 
     async def on_raw_reaction_clear(self, message_id, channel_id):
         chan = self.get_channel(channel_id)
-        if chan.guild is not None and chan.guild.id == self.GUILD_ID:
+        if chan.guild is not None and chan.guild.id == self.config.get('guild'):
             cursor = self.database.cursor()
             cursor.execute("""SELECT * FROM stars WHERE original_id=?""", (message_id,))
             res = cursor.fetchall()
 
             for i in res:
                 try:
-                    message = await chan.guild.get_channel(self.STARBOARD_ID).get_message(i[1])
+                    message = await chan.guild.get_channel(self.config.get('starboard')).get_message(i[1])
 
                     await message.delete()
                 except discord.errors.NotFound:
@@ -140,8 +189,8 @@ class HTStars(discord.Client):
 
     async def on_raw_reaction_remove(self, emoji, message_id, channel_id, user_id):
         chan = self.get_channel(channel_id)
-        if chan.guild is not None and chan.guild.id == self.GUILD_ID:
-            if emoji.name in self.STAR_EMOJI:
+        if chan.guild is not None and chan.guild.id == self.config.get('guild'):
+            if emoji.name in self.config.get('stars', STAR_EMOJI_DEFAULT):
                 await self.action(message_id, channel_id, user_id)
 
     async def action(self, message_id, channel_id, user_id):
@@ -149,11 +198,11 @@ class HTStars(discord.Client):
 
         count = 0
         for i in target_message.reactions:
-            if i.emoji in self.STAR_EMOJI:
+            if i.emoji in self.config.get('stars', STAR_EMOJI_DEFAULT):
                 count = i.count
                 break
 
-        channel = self.get_channel(self.STARBOARD_ID)
+        channel = self.get_channel(self.config.get('starboard'))
 
         cursor = self.database.cursor()
         cursor.execute("""SELECT * FROM stars WHERE original_id=?""", (message_id,))
@@ -163,7 +212,7 @@ class HTStars(discord.Client):
             try:
                 message = await channel.get_message(res[0][1])
 
-                if count >= self.THRESH:
+                if count >= self.config.get('threshold', STARBOARD_THRESHOLD_DEFAULT):
                     content, embed = self.get_emoji_message(target_message, count)
 
                     await message.edit(content=content, embed=embed)
@@ -175,15 +224,9 @@ class HTStars(discord.Client):
                 res = []
 
         if not res:
-            if channel_id != self.STARBOARD_ID:
-                if count >= self.THRESH:
+            if channel_id != self.config.get('starboard'):
+                if count >= self.config.get('threshold', STARBOARD_THRESHOLD_DEFAULT):
                     content, embed = self.get_emoji_message(target_message, count)
-
-                    # embed = discord.Embed()
-                    # embed.timestamp = target_message.created_at
-                    # embed.description = target_message.content
-                    # embed.set_author(name=target_message.author.name, icon_url=target_message.author.avatar_url_as(format='png'))
-                    # message = await channel.send(':star: **{}** <#{}> ID: {}'.format(count, channel_id, message_id), embed=embed)
                     message = await channel.send(content, embed=embed)
 
                     cursor.execute("""INSERT INTO stars (original_id, starboard_id, guild_id, author, message_content)
@@ -192,6 +235,4 @@ class HTStars(discord.Client):
                     cursor.close()
 
 if __name__ == '__main__':
-    bot = HTStars()
-    bot.run(open(bot.config['token_file']).read().split('\n')[0])
-
+    HTStars().start_bot()
