@@ -8,7 +8,7 @@ import discord
 
 LOGGING_FORMAT = '[%(levelname)s - %(name)s - %(asctime)s] %(message)s'
 
-STAR_EMOJI_DEFAULT = [b'\xe2\xad\x90'.decode('utf-8')]
+STAR_EMOJI_DEFAULT = ['\N{WHITE MEDIUM STAR}']
 STARBOARD_THRESHOLD_DEFAULT = 3
 
 
