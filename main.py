@@ -1,18 +1,35 @@
 import sqlite3
+from ruamel.yaml import YAML
 
 import discord
 
 
-STAR_EMOJI = b'\xe2\xad\x90'.decode('utf-8')
-STARBOARD_THRESHOLD = 3
-GUILD_ID = 282219466589208576
-STARBOARD_ID = 375361337464979467
-
-
 class HTStars(discord.Client):
     def __init__(self):
-        discord.Client.__init__(self)
+        super().__init__()
+        self.yaml = YAML(typ='safe')
+        with open('config.yml') as conf_file:
+            self.config = self.yaml.load(conf_file)
+        
+        # get stars from config, defaults to 
+        try:
+            self.STAR_EMOJI = list(self.config['stars'])
+        except KeyError:
+            self.STAR_EMOJI = list(b'\xe2\xad\x90'.decode('utf-8'))
 
+        try: 
+            self.THRESH = int(self.config['threshold'])
+        except KeyError:
+            self.THRESH = 3
+            
+        try:
+            self.GUILD_ID = int(self.config['guild'])
+        except KeyError: raise Exception('`guild` is missing from config.yml')
+            
+        try:
+            self.STARBOARD_ID = int(self.config['starboard'])
+        except KeyError: raise Exception('`starboard` is missing from config.yml')
+            
     def star_emoji(self, stars):
         if 5 > stars >= 0:
             return '\N{WHITE MEDIUM STAR}'
@@ -37,9 +54,9 @@ class HTStars(discord.Client):
         emoji = self.star_emoji(stars)
 
         if stars > 1:
-            content = f'{emoji} **{stars}** {message.channel.mention} ID: {message.id}'
+            content = '{0} **{2}** {1.channel.mention} ID: {1.id}'.format(emoji, message, stars)
         else:
-            content = f'{emoji} {message.channel.mention} ID: {message.id}'
+            content = '{0} {1.channel.mention} ID: {1.id}'.format(emoji, message)
 
 
         embed = discord.Embed(description=message.content)
@@ -53,7 +70,7 @@ class HTStars(discord.Client):
             if file.url.lower().endswith(('png', 'jpeg', 'jpg', 'gif')):
                 embed.set_image(url=file.url)
             else:
-                embed.add_field(name='Attachment', value=f'[{file.filename}]({file.url})', inline=False)
+                embed.add_field(name='Attachment', value='[{file.filename}]({file.url})'.format(), inline=False)
 
         embed.set_author(name=message.author.display_name, icon_url=message.author.avatar_url_as(format='png'))
         embed.timestamp = message.created_at
@@ -68,22 +85,27 @@ class HTStars(discord.Client):
         self.database.commit()
         cursor.close()
 
-        print('Starboard? More like.. Um.. Draobrats?')
+        print('-----------------------')
+        print('Connected to Discord as')
+        print(self.user.name)
+        print(self.user.id)
+        print('Guild: {0} / {0.id}\nStarboard: {1} / {1.id}'.format(self.get_guild(self.GUILD_ID), self.get_channel(self.STARBOARD_ID)))
+        print('-----------------------\n')
 
     async def on_message(self, message):
-        if message.content == 'star.die' and message.author.id == 161508165672763392:
+        if message.content == 'star.die' and message.author.id == self.user.id:
             self.database.close()
             await self.logout()
 
     async def on_message_delete(self, message):
-        if message.guild is not None and message.guild.id == GUILD_ID:
+        if message.guild is not None and message.guild.id == self.GUILD_ID:
             cursor = self.database.cursor()
             cursor.execute("""SELECT * FROM stars WHERE original_id=?""", (message.id,))
             res = cursor.fetchall()
 
             for i in res:
                 try:
-                    message = await message.guild.get_channel(STARBOARD_ID).get_message(i[1])
+                    message = await message.guild.get_channel(self.STARBOARD_ID).get_message(i[1])
 
                     await message.delete()
                 except discord.errors.NotFound:
@@ -94,20 +116,20 @@ class HTStars(discord.Client):
 
     async def on_raw_reaction_add(self, emoji, message_id, channel_id, user_id):
         chan = self.get_channel(channel_id)
-        if chan.guild is not None and chan.guild.id == GUILD_ID:
-            if emoji.name == STAR_EMOJI:
+        if chan.guild is not None and chan.guild.id == self.GUILD_ID:
+            if emoji.name in self.STAR_EMOJI:
                 await self.action(message_id, channel_id, user_id)
 
     async def on_raw_reaction_clear(self, message_id, channel_id):
         chan = self.get_channel(channel_id)
-        if chan.guild is not None and chan.guild.id == GUILD_ID:
+        if chan.guild is not None and chan.guild.id == self.GUILD_ID:
             cursor = self.database.cursor()
             cursor.execute("""SELECT * FROM stars WHERE original_id=?""", (message_id,))
             res = cursor.fetchall()
 
             for i in res:
                 try:
-                    message = await chan.guild.get_channel(STARBOARD_ID).get_message(i[1])
+                    message = await chan.guild.get_channel(self.STARBOARD_ID).get_message(i[1])
 
                     await message.delete()
                 except discord.errors.NotFound:
@@ -118,8 +140,8 @@ class HTStars(discord.Client):
 
     async def on_raw_reaction_remove(self, emoji, message_id, channel_id, user_id):
         chan = self.get_channel(channel_id)
-        if chan.guild is not None and chan.guild.id == GUILD_ID:
-            if emoji.name == STAR_EMOJI:
+        if chan.guild is not None and chan.guild.id == self.GUILD_ID:
+            if emoji.name in self.STAR_EMOJI:
                 await self.action(message_id, channel_id, user_id)
 
     async def action(self, message_id, channel_id, user_id):
@@ -127,11 +149,11 @@ class HTStars(discord.Client):
 
         count = 0
         for i in target_message.reactions:
-            if i.emoji == STAR_EMOJI:
+            if i.emoji in self.STAR_EMOJI:
                 count = i.count
                 break
 
-        channel = self.get_channel(STARBOARD_ID)
+        channel = self.get_channel(self.STARBOARD_ID)
 
         cursor = self.database.cursor()
         cursor.execute("""SELECT * FROM stars WHERE original_id=?""", (message_id,))
@@ -141,7 +163,7 @@ class HTStars(discord.Client):
             try:
                 message = await channel.get_message(res[0][1])
 
-                if count >= STARBOARD_THRESHOLD:
+                if count >= self.THRESH:
                     content, embed = self.get_emoji_message(target_message, count)
 
                     await message.edit(content=content, embed=embed)
@@ -153,8 +175,8 @@ class HTStars(discord.Client):
                 res = []
 
         if not res:
-            if channel_id != STARBOARD_ID:
-                if count >= STARBOARD_THRESHOLD:
+            if channel_id != self.STARBOARD_ID:
+                if count >= self.THRESH:
                     content, embed = self.get_emoji_message(target_message, count)
 
                     # embed = discord.Embed()
@@ -171,4 +193,5 @@ class HTStars(discord.Client):
 
 if __name__ == '__main__':
     bot = HTStars()
-    bot.run(open('token.txt').read().split('\n')[0])
+    bot.run(open(bot.config['token_file']).read().split('\n')[0])
+
